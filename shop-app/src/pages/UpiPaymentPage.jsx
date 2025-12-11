@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import "./CartPage.css";
 import api from "../api/axios";
-import upiQr from "../images/Logo_1.png"; // make sure file exists here
+import upiQr from "../images/qr.jpg"; // make sure file exists here
 
 const UpiPaymentPage = () => {
   const { orderId } = useParams();

@@ -1,11 +1,10 @@
-// src/pages/ProductDetailsPage.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "./ProductDetailsPage.css";
 import api from "../api/axios";
 
 const ProductDetailsPage = () => {
-  const { productId } = useParams(); // from /product/:productId
+  const { productId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -39,7 +38,7 @@ const ProductDetailsPage = () => {
         setLoading(true);
         setError("");
 
-        const res = await api.get(`/products/${productId}`); // GET /api/products/{id}
+        const res = await api.get(`/products/${productId}`);
         setProduct(res.data);
       } catch (err) {
         console.error(err);
@@ -52,10 +51,12 @@ const ProductDetailsPage = () => {
       }
     };
 
-    fetchProduct();
+    if (productId) {
+      fetchProduct();
+    }
   }, [productId]);
 
-  // -------- Fetch reviews --------
+  // -------- Normalize review (handles DTO + productReview map) --------
   const normalizeReview = (r) => ({
     reviewId: r.reviewId ?? r.review_id,
     userId: r.userId ?? r.user_id,
@@ -67,53 +68,62 @@ const ProductDetailsPage = () => {
     userName: r.userName ?? r.user_name ?? "User",
   });
 
+  // -------- Fetch reviews --------
   const fetchReviews = async () => {
     try {
       setReviewsLoading(true);
       setReviewsError("");
 
-      const requests = [
-        api.get(`/reviews/product/${productId}`), // all reviews for product
-      ];
-
-      if (isLoggedIn) {
-        // user-specific review
-        requests.push(
-          api
-            .get(`/reviews/user/${userId}/product/${productId}`)
-            .catch((err) => {
-              if (err.response && err.response.status === 404) {
-                return { data: null };
-              }
-              throw err;
-            })
-        );
-      }
-
-      const [allRes, myRes] = await Promise.all(requests);
+      // 1️⃣ All reviews for product (with user_name) – matches backend:
+      //    @GetMapping("/productReview/{productId}")
+      const allRes = await api.get(`/reviews/productReview/${productId}`);
       const allData = Array.isArray(allRes.data)
         ? allRes.data.map(normalizeReview)
         : [];
 
       setReviews(allData);
 
-      if (isLoggedIn && myRes) {
-        const mineData = myRes.data;
-        if (mineData) {
-          const normalized = normalizeReview(mineData);
-          setMyReview(normalized);
-          setReviewRating(normalized.rating ?? 5);
-          setReviewText(normalized.reviewText ?? "");
+      // 2️⃣ Logged-in user’s reviews across all products:
+      //    @GetMapping("/user/{userId}")
+      if (isLoggedIn) {
+        const myRes = await api
+          .get(`/reviews/user/${userId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          .catch((err) => {
+            if (err.response && err.response.status === 404) {
+              return { data: [] };
+            }
+            throw err;
+          });
+
+        const mineAll = Array.isArray(myRes.data)
+          ? myRes.data.map(normalizeReview)
+          : [];
+
+        const mineForThis = mineAll.find(
+          (rev) => Number(rev.productId) === Number(productId)
+        );
+
+        if (mineForThis) {
+          setMyReview(mineForThis);
+          setReviewRating(mineForThis.rating ?? 5);
+          setReviewText(mineForThis.reviewText ?? "");
         } else {
           setMyReview(null);
           setReviewRating(5);
           setReviewText("");
         }
+      } else {
+        setMyReview(null);
+        setReviewRating(5);
+        setReviewText("");
       }
     } catch (err) {
       console.error(err);
       setReviewsError(
-        err.response?.data?.message || "Failed to load reviews. Please try again."
+        err.response?.data?.message ||
+          "Failed to load reviews. Please try again."
       );
     } finally {
       setReviewsLoading(false);
@@ -137,18 +147,15 @@ const ProductDetailsPage = () => {
     return true;
   };
 
-  // 🔹 Get or create a cart, return cartId (for Add to Cart flow)
   const getOrCreateCartId = async () => {
     let res;
     let cartData;
 
-    // 1️⃣ Try get existing cart
     res = await fetch(`http://localhost:8888/api/carts/user/${userId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
     if (!res.ok) {
-      // 2️⃣ Create cart if not exists
       res = await fetch(`http://localhost:8888/api/carts/${userId}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -180,7 +187,7 @@ const ProductDetailsPage = () => {
     }
   };
 
-  // -------- Add to Cart (normal cart, not buy now) --------
+  // -------- Add to Cart --------
   const handleAddToCart = async () => {
     if (!ensureLoggedIn()) return;
 
@@ -226,11 +233,10 @@ const ProductDetailsPage = () => {
     }
   };
 
-  // -------- Buy Now (AMAZON STYLE: ONLY THIS PRODUCT) --------
+  // -------- Buy Now --------
   const handleBuyNow = () => {
     if (!ensureLoggedIn()) return;
 
-    // ✅ Do NOT touch cart, just send this product + qty to checkout
     navigate("/order", {
       state: {
         buyNow: true,
@@ -259,19 +265,15 @@ const ProductDetailsPage = () => {
         productId: product.productId ?? product.product_id,
         rating: reviewRating,
         reviewText: reviewText.trim(),
+        // status not required from FE; backend sets "VISIBLE"
       };
 
-      if (myReview && myReview.reviewId) {
-        // update existing
-        await api.put(`/reviews/${myReview.reviewId}`, payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      } else {
-        // create new
-        await api.post(`/reviews`, payload, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
+      // ✅ Backend only exposes POST /api/reviews, so always use POST.
+      // If your DB has a unique constraint on (userId, productId),
+      // saveReview can behave like "upsert".
+      await api.post(`/reviews`, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       await fetchReviews();
 
@@ -348,7 +350,6 @@ const ProductDetailsPage = () => {
                   {product.productName || "Product"}
                 </h1>
 
-                {/* price + mrp + discount */}
                 <div className="product-price-section">
                   <span className="price">
                     ₹{sellingPrice.toLocaleString("en-IN")}
@@ -440,9 +441,7 @@ const ProductDetailsPage = () => {
               {reviewsLoading && (
                 <p className="cart-info">Loading reviews...</p>
               )}
-              {reviewsError && (
-                <p className="cart-error">{reviewsError}</p>
-              )}
+              {reviewsError && <p className="cart-error">{reviewsError}</p>}
 
               {isLoggedIn && (
                 <div className="my-review-box">
@@ -463,10 +462,7 @@ const ProductDetailsPage = () => {
                   )}
 
                   {reviewFormOpen && (
-                    <form
-                      className="review-form"
-                      onSubmit={handleSubmitReview}
-                    >
+                    <form className="review-form" onSubmit={handleSubmitReview}>
                       <div className="review-rating-select">
                         <span>Rating:</span>
                         <select
@@ -536,9 +532,7 @@ const ProductDetailsPage = () => {
                             {formatReviewDate(rev.createdAt)}
                           </p>
                         </div>
-                        <div className="review-rating">
-                          {rev.rating} ★
-                        </div>
+                        <div className="review-rating">{rev.rating} ★</div>
                       </div>
                       {rev.reviewText && (
                         <p className="review-text">{rev.reviewText}</p>
@@ -560,4 +554,3 @@ const ProductDetailsPage = () => {
 };
 
 export default ProductDetailsPage;
-

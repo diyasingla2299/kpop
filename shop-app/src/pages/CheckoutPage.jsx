@@ -188,7 +188,7 @@ const CheckoutPage = () => {
 
               <div className="form-group">
                 <label>Phone</label>
-                <input type="tel" value={phone} disabled />
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required />
               </div>
 
               <div className="form-group">

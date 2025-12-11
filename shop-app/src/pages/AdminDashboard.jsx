@@ -1,4 +1,4 @@
-// admin-dashboard.jsx
+// src/pages/AdminDashboard.jsx
 import React, { useState, useEffect } from "react";
 import "./AdminDashboard.css";
 
@@ -11,7 +11,6 @@ const AdminSidebar = ({ activeSection, onSelectSection }) => {
     { key: "dashboard", label: "Dashboard" },
     { key: "products", label: "Products" },
     { key: "orders", label: "Orders" },
-    { key: "payments", label: "Payments" },
     { key: "users", label: "Users" },
   ];
 
@@ -52,7 +51,6 @@ const DashboardHome = () => {
       try {
         const token = localStorage.getItem("token");
 
-        // 🔹 FIXED: point to /api/admin/dashboard
         const res = await fetch(`${API_BASE_URL}/api/admin/dashboard`, {
           headers: {
             "Content-Type": "application/json",
@@ -60,10 +58,14 @@ const DashboardHome = () => {
           },
         });
 
-        if (!res.ok) throw new Error("Failed to load dashboard data");
+        if (!res.ok) {
+          const txt = await res.text();
+          console.error("Dashboard API error:", res.status, txt);
+          throw new Error("Failed to load dashboard data");
+        }
 
         const data = await res.json();
-        setSummary(data);
+        setSummary(data || {});
       } catch (err) {
         console.error("Dashboard error:", err);
         setError("Could not load dashboard data.");
@@ -92,21 +94,15 @@ const DashboardHome = () => {
   }
 
   const {
-    totalRevenue,
-    totalOrders,
-    totalProducts,
-    successfulPayments,
-    ordersByStatus,
-    recentOrders,
-    lowStockProducts,
+    totalOrders = 0,
+    totalProducts = 0,
+    ordersByStatus = {},
+    recentOrders = [],
+    lowStockProducts = [],
   } = summary;
 
+  // ✅ only these 2 – no totalRevenue / successfulPayments now
   const stats = [
-    {
-      label: "Total Revenue",
-      value: `₹${Number(totalRevenue || 0).toLocaleString("en-IN")}`,
-      chip: "All time",
-    },
     {
       label: "Total Orders",
       value: totalOrders,
@@ -117,15 +113,11 @@ const DashboardHome = () => {
       value: totalProducts,
       chip: "Catalog",
     },
-    {
-      label: "Successful Payments",
-      value: successfulPayments,
-      chip: "Gateway success",
-    },
   ];
 
   const statusLabels = [
     { key: "pending", label: "Pending" },
+    { key: "processing", label: "Processing" },
     { key: "confirmed", label: "Confirmed" },
     { key: "shipped", label: "Shipped" },
     { key: "delivered", label: "Delivered" },
@@ -133,47 +125,39 @@ const DashboardHome = () => {
     { key: "expired", label: "Expired" },
   ];
 
-  const maxStatusVal = Math.max(
-    ...statusLabels.map((s) => (ordersByStatus?.[s.key] || 0)),
-    1
-  );
-
   return (
     <div className="dashboard-grid">
-      {/* horizontally scrollable stat cards */}
+      {/* Stats row */}
       <section className="stat-grid">
         {stats.map((stat) => (
           <article key={stat.label} className="stat-card">
             <h3>{stat.label}</h3>
             <p className="stat-value">{stat.value}</p>
             <span className="stat-chip">{stat.chip}</span>
-            <div className="stat-orbit-ring" />
-            <div className="stat-orbit-dot" />
           </article>
         ))}
       </section>
 
+      {/* Orders by status + low stock */}
       <section className="lower-grid">
-  <article className="panel panel-main">
-    <div className="panel-header">
-      <h3>Orders by Status</h3>
-      <span className="panel-tag">Live</span>
-    </div>
-
-    {/* Simple summary list instead of chart */}
-    <div className="orders-status-list">
-      {statusLabels.map((s) => {
-        const val = ordersByStatus?.[s.key] || 0;
-        return (
-          <div key={s.key} className="orders-status-row">
-            <span className="orders-status-name">{s.label}</span>
-            <span className="orders-status-count">{val}</span>
+        <article className="panel panel-main">
+          <div className="panel-header">
+            <h3>Orders by Status</h3>
+            <span className="panel-tag">Live</span>
           </div>
-        );
-      })}
-    </div>
-  </article>
 
+          <div className="orders-status-list">
+            {statusLabels.map((s) => {
+              const val = ordersByStatus?.[s.key] ?? 0;
+              return (
+                <div key={s.key} className="orders-status-row">
+                  <span className="orders-status-name">{s.label}</span>
+                  <span className="orders-status-count">{val}</span>
+                </div>
+              );
+            })}
+          </div>
+        </article>
 
         <article className="panel panel-side">
           <div className="panel-header">
@@ -181,7 +165,7 @@ const DashboardHome = () => {
             <span className="panel-tag soft">Qty ≤ 5</span>
           </div>
 
-          {lowStockProducts?.length ? (
+          {lowStockProducts && lowStockProducts.length > 0 ? (
             <ul className="low-stock-list">
               {lowStockProducts.map((item) => (
                 <li key={item.productId} className="low-stock-item">
@@ -191,8 +175,7 @@ const DashboardHome = () => {
                   </div>
                   <span
                     className={`low-stock-badge ${
-                      item.productQuantity != null &&
-                      item.productQuantity <= 2
+                      item.productQuantity != null && item.productQuantity <= 2
                         ? "critical"
                         : ""
                     }`}
@@ -208,7 +191,7 @@ const DashboardHome = () => {
         </article>
       </section>
 
-      {/* recent orders */}
+      {/* Recent orders */}
       <section className="panel panel-full" style={{ marginTop: "20px" }}>
         <div className="panel-header">
           <div>
@@ -217,7 +200,7 @@ const DashboardHome = () => {
           </div>
         </div>
 
-        {recentOrders?.length ? (
+        {recentOrders && recentOrders.length > 0 ? (
           <table className="panel-table">
             <thead>
               <tr>
@@ -260,7 +243,7 @@ const DashboardHome = () => {
   );
 };
 
-/* ========== PRODUCTS (EDIT + DELETE) ========== */
+/* ========== PRODUCTS VIEW ========== */
 
 const ProductsView = () => {
   const [products, setProducts] = useState([]);
@@ -347,11 +330,10 @@ const ProductsView = () => {
       });
 
       if (!res.ok) {
-  const text = await res.text();
-  console.error("Update failed:", res.status, text);
-  throw new Error(text || `Update failed (status ${res.status})`);
-}
-
+        const text = await res.text();
+        console.error("Update failed:", res.status, text);
+        throw new Error(text || `Update failed (status ${res.status})`);
+      }
 
       const updated = await res.json();
 
@@ -432,9 +414,7 @@ const ProductsView = () => {
                     ? `₹${Number(p.productPrice).toLocaleString("en-IN")}`
                     : "-"}
                 </td>
-                <td>
-                  {p.productQuantity != null ? p.productQuantity : "-"}
-                </td>
+                <td>{p.productQuantity != null ? p.productQuantity : "-"}</td>
                 <td>{p.brand || "-"}</td>
                 <td>
                   <button
@@ -532,7 +512,7 @@ const ProductsView = () => {
   );
 };
 
-/* ========== ORDERS (READ-ONLY LIST) ========== */
+/* ========== ORDERS VIEW ========== */
 
 const OrdersView = () => {
   const [orders, setOrders] = useState([]);
@@ -552,19 +532,15 @@ const OrdersView = () => {
         });
 
         if (!res.ok) {
-          const errorText = await res.text();
-          console.error("Orders API error:", res.status, errorText);
+          const text = await res.text();
+          console.error("Orders API error:", res.status, text);
 
           if (res.status === 403) {
             setError(
-              "You are not authorized to view orders. Please login as ADMIN or SELLER."
+              "You are not authorized to view orders. Login as ADMIN/SELLER."
             );
-          } else if (res.status === 404) {
-            setError("Orders endpoint not found (GET /api/orders).");
           } else {
-            setError(
-              `Could not load orders (status ${res.status}).`
-            );
+            setError("Could not load orders.");
           }
           return;
         }
@@ -664,249 +640,7 @@ const OrdersView = () => {
   );
 };
 
-
-/* ========== PAYMENTS (SEARCH BY USER + UPDATE STATUS) ========== */
-
-/* ========== PAYMENTS (SEARCH BY USER + UPDATE STATUS) ========== */
-
-/* ========== PAYMENTS (SEARCH BY USER + UPDATE STATUS) ========== */
-
-const PaymentsView = () => {
-  const [userIdInput, setUserIdInput] = useState("");
-  const [payments, setPayments] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [updatingId, setUpdatingId] = useState(null);
-
-  // ✅ Normalize rows from /api/payments/user/{userId}
-  // 🔹 CHANGED: expanded to cover more possible key names
-  const normalizePayment = (row) => {
-    const paymentId =
-      row.payment_id ??
-      row.paymentId ??
-      row.PAYMENT_ID ??
-      row.id;
-
-    const orderId =
-      row.orderId ??
-      row.order_id ??
-      row.ORDER_ID;
-
-    const userId =
-      row.userId ??
-      row.user_id ??
-      row.USER_ID ??
-      row.buyer_id ??
-      row.BUYER_ID;
-
-    const amount =
-      row.amount ??
-      row.AMOUNT ??
-      row.paymentAmount ??
-      row.payment_amount;
-
-    const status =
-      row.status ??
-      row.STATUS ??
-      row.payment_status ??
-      row.paymentStatus;
-
-    const paymentMethod =
-      row.paymentMethod ??
-      row.payment_method ??
-      row.PAYMENT_METHOD ??
-      row.method ??
-      row.gateway;
-
-    return {
-      paymentId,
-      orderId,
-      userId,
-      amount,
-      status,
-      paymentMethod,
-    };
-  };
-
-  const getPaymentId = (p) => p.paymentId;
-
-  // 🔹 CHANGED: keep handleSearch reusable so we can call it after update
-  const handleSearch = async () => {
-    if (!userIdInput) {
-      setError("Enter a user ID to search payments.");
-      setPayments([]);
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const token = localStorage.getItem("token");
-
-      const res = await fetch(
-        `${API_BASE_URL}/api/payments/user/${userIdInput}`,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: token ? `Bearer ${token}` : "",
-          },
-        }
-      );
-
-      if (res.status === 404) {
-        // No payments for this user
-        setPayments([]);
-        return;
-      }
-
-      if (!res.ok) throw new Error("Failed to load payments");
-
-      const data = await res.json();
-
-      // 🔹 CHANGED: log once to see actual keys (for debugging)
-      console.log("RAW PAYMENTS DATA:", data);
-
-      const normalized = (Array.isArray(data) ? data : []).map(
-        normalizePayment
-      );
-      setPayments(normalized);
-    } catch (e) {
-      console.error("Payments error:", e);
-      setError("Could not load payments for this user.");
-      setPayments([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🔹 CHANGED: after successful update, reload from backend so it's "real"
-  const handleStatusChange = async (payment, newStatus) => {
-    const paymentId = getPaymentId(payment);
-    if (!paymentId) {
-      alert("Invalid payment ID");
-      return;
-    }
-
-    setUpdatingId(paymentId);
-
-    try {
-      const token = localStorage.getItem("token");
-
-      const res = await fetch(
-        `${API_BASE_URL}/api/payments/${paymentId}/status?status=${encodeURIComponent(
-          newStatus
-        )}`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: token ? `Bearer ${token}` : "",
-          },
-        }
-      );
-
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || "Failed to update payment status");
-      }
-
-      // 🔸 NEW: we *could* use the return value, but we prefer to reload list
-      await handleSearch(); // reload from DB so UI matches real data
-    } catch (err) {
-      console.error("Update payment status error:", err);
-      alert("Could not update payment status.");
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  return (
-    <section className="panel panel-full">
-      <div className="panel-header">
-        <div>
-          <h3>Payments</h3>
-          <p className="panel-subtitle">
-            Search payments by user, and update status if needed.
-          </p>
-        </div>
-      </div>
-
-      <div className="filters-row">
-        <div className="filters-group">
-          <label className="filters-label">
-            User ID
-            <input
-              type="number"
-              className="filters-input"
-              value={userIdInput}
-              onChange={(e) => setUserIdInput(e.target.value)}
-              placeholder="e.g. 1"
-            />
-          </label>
-          <button className="filters-btn" onClick={handleSearch}>
-            Load Payments
-          </button>
-        </div>
-        {loading && <span className="filters-loading">Loading…</span>}
-        {error && <span className="filters-error">{error}</span>}
-      </div>
-
-      {!loading && payments && payments.length > 0 && (
-        <table className="panel-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Order ID</th>
-              <th>User ID</th>
-              <th>Amount</th>
-              <th>Status</th>
-              <th>Method</th>
-              <th>Update Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr key={p.paymentId}>
-                <td>{p.paymentId}</td>
-                <td>{p.orderId ?? "-"}</td>
-                <td>{p.userId ?? "-"}</td>
-                <td>
-                  {p.amount != null
-                    ? `₹${Number(p.amount).toLocaleString("en-IN")}`
-                    : "-"}
-                </td>
-                <td>{p.status || "-"}</td>
-                <td>{p.paymentMethod || "-"}</td>
-                <td>
-                  <select
-                    className="status-select"
-                    value={p.status || "CREATED"}
-                    disabled={updatingId === p.paymentId}
-                    onChange={(e) =>
-                      handleStatusChange(p, e.target.value || p.status)
-                    }
-                  ><option value="PENDING">PENDING</option>
-  <option value="PAID">PAID</option>      {/* instead of SUCCESS */}
-  <option value="FAILED">FAILED</option>
-  <option value="REFUNDED">REFUNDED</option>
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {!loading && payments && payments.length === 0 && !error && (
-        <p className="panel-subtitle">
-          No payments found for this user.
-        </p>
-      )}
-    </section>
-  );
-};
-
-/* ========== USERS (READ-ONLY LIST) ========== */
+/* ========== USERS VIEW ========== */
 
 const UsersView = () => {
   const [users, setUsers] = useState([]);
@@ -926,19 +660,13 @@ const UsersView = () => {
         });
 
         if (!res.ok) {
-          const errorText = await res.text();
-          console.error("Users API error:", res.status, errorText);
+          const text = await res.text();
+          console.error("Users API error:", res.status, text);
 
           if (res.status === 403) {
-            setError(
-              "You are not authorized to view users. Please login as ADMIN."
-            );
-          } else if (res.status === 404) {
-            setError("Users endpoint not found (GET /api/users).");
+            setError("You are not authorized to view users. Login as ADMIN.");
           } else {
-            setError(
-              `Could not load users (status ${res.status}).`
-            );
+            setError("Could not load users.");
           }
           return;
         }
@@ -1034,7 +762,6 @@ const AdminDashboard = () => {
         {section === "dashboard" && <DashboardHome />}
         {section === "products" && <ProductsView />}
         {section === "orders" && <OrdersView />}
-        {section === "payments" && <PaymentsView />}
         {section === "users" && <UsersView />}
       </main>
     </div>
@@ -1042,3 +769,5 @@ const AdminDashboard = () => {
 };
 
 export default AdminDashboard;
+
+
